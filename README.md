@@ -23,15 +23,22 @@ Both apps run from a **single container** — there is no `docker compose`.
 ## How the church system works
 
 - A **Church** is a content type: name, slug, description, address, email,
-  phone, an `inviteToken`, and `admins` / `members` relations to users.
+  phone, an `inviteToken`, and an `admins` relation.
+- **Membership lives on the member**: the users-permissions user model is
+  extended with a `churches` relation
+  ([src/extensions/users-permissions](backend/src/extensions/users-permissions)),
+  so joining a church writes to the user and a church's members are found by
+  querying users. The church edit view shows administrators; a person's
+  churches are on their own user record.
 - The invite token is generated automatically when a church is created. It is
   the credential the public join flow uses, so it is random and unguessable.
 - On the church's edit page in the admin panel, **Get QR Code** opens
   `/qr/<inviteToken>` in the front-end app.
 - That page renders a QR code encoding `/join/<inviteToken>`. Scanning it opens
   a form asking for one thing: an email address.
-- Submitting the form adds that person to the church, creating a user with the
-  **Church Member** role if the email is new. Scanning twice is not an error.
+- Submitting the form saves the church onto that person's user record,
+  creating the user with the **Church Member** role if the email is new.
+  Scanning twice is not an error.
 - Two users-permissions roles are created on boot: **Church Admin** and
   **Church Member**.
 

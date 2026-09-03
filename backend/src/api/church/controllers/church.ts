@@ -16,7 +16,7 @@ export default factories.createCoreController(CHURCH_UID, ({ strapi }) => ({
       return ctx.notFound('This invitation link is not valid.');
     }
 
-    ctx.body = { data: service.toPublicChurch(church) };
+    ctx.body = { data: await service.toPublicChurch(church) };
   },
 
   /**
@@ -34,7 +34,7 @@ export default factories.createCoreController(CHURCH_UID, ({ strapi }) => ({
 
     ctx.body = {
       data: {
-        church: service.toPublicChurch(church),
+        church: await service.toPublicChurch(church),
         member: { email: user.email },
         userCreated,
         alreadyMember,

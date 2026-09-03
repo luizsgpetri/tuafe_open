@@ -11,6 +11,11 @@ export const CHURCH_ADMIN_ROLE = 'church-admin';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * Membership lives on the member: the user model owns the `churches` relation
+ * (see src/extensions/users-permissions), so every read and write below goes
+ * through the user, and a church's members are found by querying users.
+ */
 export default factories.createCoreService(CHURCH_UID, ({ strapi }) => ({
   /**
    * The invite token is the only credential the public join flow has, so it is
@@ -23,7 +28,7 @@ export default factories.createCoreService(CHURCH_UID, ({ strapi }) => ({
 
     const [church] = await strapi.documents(CHURCH_UID).findMany({
       filters: { inviteToken: token },
-      populate: { members: { fields: ['id'] }, admins: { fields: ['id'] } },
+      populate: { admins: { fields: ['id'] } },
       limit: 1,
     });
 
@@ -32,6 +37,18 @@ export default factories.createCoreService(CHURCH_UID, ({ strapi }) => ({
 
   async findRoleByType(type: string) {
     return strapi.db.query(ROLE_UID).findOne({ where: { type } });
+  },
+
+  countMembers(churchId: number) {
+    return strapi.db.query(USER_UID).count({ where: { churches: { id: churchId } } });
+  },
+
+  async isMember(userId: number, churchId: number) {
+    const count = await strapi.db
+      .query(USER_UID)
+      .count({ where: { id: userId, churches: { id: churchId } } });
+
+    return count > 0;
   },
 
   /**
@@ -54,8 +71,19 @@ export default factories.createCoreService(CHURCH_UID, ({ strapi }) => ({
 
     let user = await strapi.db.query(USER_UID).findOne({ where: { email: normalizedEmail } });
     let userCreated = false;
+    let alreadyMember = false;
 
-    if (!user) {
+    if (user) {
+      alreadyMember = await this.isMember(user.id, church.id);
+
+      if (!alreadyMember) {
+        // The membership is written on the member.
+        await strapi.documents(USER_UID).update({
+          documentId: user.documentId,
+          data: { churches: { connect: [church.id] } },
+        });
+      }
+    } else {
       const role = await this.findRoleByType(CHURCH_MEMBER_ROLE);
 
       user = await strapi.documents(USER_UID).create({
@@ -68,22 +96,12 @@ export default factories.createCoreService(CHURCH_UID, ({ strapi }) => ({
           provider: 'local',
           confirmed: true,
           blocked: false,
+          churches: [church.id],
           ...(role ? { role: role.id } : {}),
         },
       });
 
       userCreated = true;
-    }
-
-    const alreadyMember = (church.members ?? []).some(
-      (member: { id: number }) => member.id === user.id
-    );
-
-    if (!alreadyMember) {
-      await strapi.documents(CHURCH_UID).update({
-        documentId: church.documentId,
-        data: { members: { connect: [user.id] } },
-      });
     }
 
     return { church, user, userCreated, alreadyMember };
@@ -93,25 +111,38 @@ export default factories.createCoreService(CHURCH_UID, ({ strapi }) => ({
    * Churches the user belongs to, either as an administrator or as a member.
    */
   async findForUser(userId: number) {
-    const churches = await strapi.documents(CHURCH_UID).findMany({
-      filters: {
-        $or: [{ admins: { id: userId } }, { members: { id: userId } }],
-      },
-      populate: { members: { fields: ['id'] }, admins: { fields: ['id'] } },
+    const user = await strapi.db.query(USER_UID).findOne({
+      where: { id: userId },
+      populate: { churches: { select: ['id'] } },
     });
 
-    return churches.map((church: any) => ({
-      ...this.toPublicChurch(church),
-      inviteToken: church.inviteToken,
-      isAdmin: (church.admins ?? []).some((admin: { id: number }) => admin.id === userId),
-    }));
+    const memberChurchIds = (user?.churches ?? []).map((church: { id: number }) => church.id);
+
+    const churches = await strapi.documents(CHURCH_UID).findMany({
+      filters: {
+        $or: [
+          { admins: { id: userId } },
+          // An empty list would match every church, so it is never sent.
+          ...(memberChurchIds.length ? [{ id: { $in: memberChurchIds } }] : []),
+        ],
+      },
+      populate: { admins: { fields: ['id'] } },
+    });
+
+    return Promise.all(
+      churches.map(async (church: any) => ({
+        ...(await this.toPublicChurch(church)),
+        inviteToken: church.inviteToken,
+        isAdmin: (church.admins ?? []).some((admin: { id: number }) => admin.id === userId),
+      }))
+    );
   },
 
   /**
    * Shape returned to unauthenticated visitors: everything needed to recognise
    * the church, nothing that identifies its members.
    */
-  toPublicChurch(church: any) {
+  async toPublicChurch(church: any) {
     return {
       documentId: church.documentId,
       name: church.name,
@@ -120,7 +151,7 @@ export default factories.createCoreService(CHURCH_UID, ({ strapi }) => ({
       address: church.address,
       email: church.email,
       phone: church.phone,
-      memberCount: (church.members ?? []).length,
+      memberCount: await this.countMembers(church.id),
     };
   },
 }));
