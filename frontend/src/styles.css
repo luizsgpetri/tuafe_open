@@ -1,0 +1,21 @@
+body {
+  background-color: #f6f6f9;
+}
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-main {
+  flex: 1;
+  padding: 2.5rem 0;
+}
+
+.qr-frame {
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  display: inline-block;
+}

@@ -1,0 +1,25 @@
+{
+  "name": "tuafe-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Church community front-end: login, church profile, invitation QR codes",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "bootstrap": "^5.3.3",
+    "qrcode.react": "^4.2.0",
+    "react": "^18.3.1",
+    "react-bootstrap": "^2.10.5",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.30.3"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

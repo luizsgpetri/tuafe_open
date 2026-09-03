@@ -1,0 +1,51 @@
+{
+  "kind": "collectionType",
+  "collectionName": "churches",
+  "info": {
+    "singularName": "church",
+    "pluralName": "churches",
+    "displayName": "Church",
+    "description": "A church community and its members"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "slug": {
+      "type": "uid",
+      "targetField": "name"
+    },
+    "description": {
+      "type": "text"
+    },
+    "address": {
+      "type": "string"
+    },
+    "email": {
+      "type": "email"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "inviteToken": {
+      "type": "string",
+      "unique": true,
+      "maxLength": 64
+    },
+    "admins": {
+      "type": "relation",
+      "relation": "manyToMany",
+      "target": "plugin::users-permissions.user"
+    },
+    "members": {
+      "type": "relation",
+      "relation": "manyToMany",
+      "target": "plugin::users-permissions.user"
+    }
+  }
+}

@@ -1,21 +1,67 @@
 # tuafe
 
-Backend for tuafe, built on [Strapi 5](https://docs.strapi.io/) (TypeScript) and run in a single
-Docker container. There is no `docker compose` — everything is in the [Dockerfile](Dockerfile) and
-the app starts with one `docker run`.
+Church community system: churches are managed in the Strapi admin panel, and
+people join a church by scanning its invitation QR code.
+
+Both apps run from a **single container** — there is no `docker compose`.
 
 ```
 .
-├── Dockerfile        # builds the image from ./backend
-├── .dockerignore
-└── backend/          # the Strapi application (source of truth)
+├── Dockerfile          # builds the front-end, then the runtime image with both apps
+├── docker/
+│   └── entrypoint.sh   # starts the front-end server and Strapi
+├── backend/            # Strapi 5 (TypeScript) — API, admin panel, data model
+└── frontend/           # React + Vite + Bootstrap — QR code, join form, login
 ```
+
+| App | URL | What it is |
+|---|---|---|
+| Admin panel | http://localhost:1337/admin | Create churches, manage members, "Get QR Code" |
+| API | http://localhost:1337/api | Strapi REST API |
+| Front-end | http://localhost:3000 | Login, church profile, QR code, join form |
+
+## How the church system works
+
+- A **Church** is a content type: name, slug, description, address, email,
+  phone, an `inviteToken`, and `admins` / `members` relations to users.
+- The invite token is generated automatically when a church is created. It is
+  the credential the public join flow uses, so it is random and unguessable.
+- On the church's edit page in the admin panel, **Get QR Code** opens
+  `/qr/<inviteToken>` in the front-end app.
+- That page renders a QR code encoding `/join/<inviteToken>`. Scanning it opens
+  a form asking for one thing: an email address.
+- Submitting the form adds that person to the church, creating a user with the
+  **Church Member** role if the email is new. Scanning twice is not an error.
+- Two users-permissions roles are created on boot: **Church Admin** and
+  **Church Member**.
+
+### Front-end routes
+
+| Route | Purpose |
+|---|---|
+| `/login` | Member / administrator login |
+| `/churches` | Churches the logged in user belongs to |
+| `/church/:token` | Public church profile |
+| `/qr/:token` | Invitation QR code (target of the admin panel button) |
+| `/join/:token` | Join form the QR code leads to |
+
+### API endpoints
+
+| Endpoint | Auth | Purpose |
+|---|---|---|
+| `GET /api/churches/invite/:token` | public | Church details behind an invitation |
+| `POST /api/churches/join` | public | `{ token, email }` → adds the person to the church |
+| `GET /api/churches/mine` | JWT | Churches of the logged in user, with `isAdmin` |
+| `POST /api/auth/local` | public | Login (users-permissions) |
+
+Church CRUD stays behind the admin panel: the public role has no permission on
+the default `/api/churches` routes.
 
 ## Requirements
 
 - Docker (Desktop on macOS) with a few GB of free disk space
 - A MySQL 8 database — on your machine, in another container, or remote
-- Node.js 22 only if you want to run Strapi outside Docker
+- Node.js 22 only if you want to run the apps outside Docker
 
 ## 1. Configure the environment
 
@@ -31,19 +77,21 @@ Then edit `backend/.env`:
   openssl rand -base64 32
   ```
 
-  `APP_KEYS` takes two or more comma-separated keys (`key1,key2`). Do not wrap values in quotes:
-  Docker's `--env-file` keeps the quotes as part of the value. Values may contain `&`, `$` and
-  similar characters — `--env-file` passes them through literally, but `source backend/.env` in a
-  shell will choke on them.
+  `APP_KEYS` takes two or more comma-separated keys (`key1,key2`). Do not wrap
+  values in quotes: Docker's `--env-file` keeps the quotes as part of the value.
+  Values may contain `&`, `$` and similar characters — `--env-file` passes them
+  through literally, but `source backend/.env` in a shell will choke on them.
 
-- **Database** — `DATABASE_CLIENT=mysql` plus host, port, name, user and password.
+- **Database** — `DATABASE_CLIENT=mysql` plus host, port, name, user and
+  password.
 
-`backend/.env` is never copied into the image (see [.dockerignore](.dockerignore)); it is passed at
-run time with `--env-file`. Keep it out of git.
+`backend/.env` is never copied into the image (see [.dockerignore](.dockerignore));
+it is passed at run time with `--env-file`. Keep it out of git.
 
 ## 2. Provide a database
 
-Strapi does not create the database — only its tables. Create an empty schema first:
+Strapi does not create the database — only its tables. Create an empty schema
+first:
 
 ```sql
 CREATE DATABASE strapi CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -63,46 +111,54 @@ and set `DATABASE_HOST=tuafe-mysql` in `backend/.env`.
 
 ## 3. Build the image
 
-Run this from the repository root — the build context is the root, not `backend/`.
+Run this from the repository root — the build context is the root, not
+`backend/`. The front-end is built during `docker build`; nothing is compiled at
+run time except the Strapi admin panel.
 
 ```bash
 docker build -t tuafe-strapi .
 ```
-
-The container installs its own dependencies from `backend/package-lock.json`; your local
-`backend/node_modules` is ignored (macOS binaries do not run in the Alpine container).
 
 ## 4. Run it
 
 MySQL in a container, on the shared network:
 
 ```bash
-docker run -d --name tuafe --network tuafe-net -p 1337:1337 --env-file backend/.env -e DATABASE_HOST=tuafe-mysql -e DATABASE_SSL=false -v tuafe_uploads:/opt/app/public/uploads tuafe-strapi
+docker run -d --name tuafe --network tuafe-net -p 1337:1337 -p 3000:3000 --env-file backend/.env -e DATABASE_HOST=tuafe-mysql -e DATABASE_SSL=false -v tuafe_uploads:/opt/app/public/uploads tuafe-strapi
 ```
 
-`DATABASE_SSL=false` is needed because the `mysql:8` image serves a self-signed certificate; drop
-that override when pointing at a managed database that has a real one.
-
-MySQL running directly on your Mac (`DATABASE_HOST=127.0.0.1` in the file points at the container
-itself, so override it):
+MySQL running directly on your Mac (`DATABASE_HOST=127.0.0.1` in the file points
+at the container itself, so override it):
 
 ```bash
-docker run -d --name tuafe -p 1337:1337 --env-file backend/.env -e DATABASE_HOST=host.docker.internal -v tuafe_uploads:/opt/app/public/uploads tuafe-strapi
+docker run -d --name tuafe -p 1337:1337 -p 3000:3000 --env-file backend/.env -e DATABASE_HOST=host.docker.internal -e DATABASE_SSL=false -v tuafe_uploads:/opt/app/public/uploads tuafe-strapi
 ```
 
-Open http://localhost:1337/admin and create the first administrator. The API is served from
-http://localhost:1337/api.
+`DATABASE_SSL=false` is needed because the `mysql:8` image serves a self-signed
+certificate; drop that override when pointing at a managed database that has a
+real one.
+
+Then:
+
+1. Open http://localhost:1337/admin and create the first administrator.
+2. Create a church under **Content Manager → Church**.
+3. Save it, then press **Get QR Code** — http://localhost:3000/qr/&lt;token&gt;
+   opens with the invitation code.
+4. Scanning it (or opening http://localhost:3000/join/&lt;token&gt;) adds a
+   member by email.
 
 ### Live editing
 
 Mount your working tree so changes on the host restart the dev server:
 
 ```bash
-docker run -d --name tuafe -p 1337:1337 --env-file backend/.env -e DATABASE_HOST=host.docker.internal -v "$PWD/backend/src:/opt/app/src" -v "$PWD/backend/config:/opt/app/config" -v tuafe_uploads:/opt/app/public/uploads tuafe-strapi
+docker run -d --name tuafe --network tuafe-net -p 1337:1337 -p 3000:3000 --env-file backend/.env -e DATABASE_HOST=tuafe-mysql -e DATABASE_SSL=false -v "$PWD/backend/src:/opt/app/src" -v "$PWD/backend/config:/opt/app/config" -v tuafe_uploads:/opt/app/public/uploads tuafe-strapi
 ```
 
-Dependencies live in `/opt/node_modules`, one level above the app, so mounting over `/opt/app`
-does not hide them. Adding or removing a package still requires a rebuild.
+Backend dependencies live in `/opt/node_modules`, one level above the app, so
+mounting over `/opt/app` does not hide them. Adding or removing a package still
+requires a rebuild. The front-end is served from the image as static files, so
+front-end changes always need a rebuild (or `cd frontend && npm run dev`).
 
 ## Everyday commands
 
@@ -113,23 +169,21 @@ does not hide them. Adding or removing a package still requires a rebuild.
 | Start again | `docker start tuafe` |
 | Stop and remove | `docker rm -f tuafe` |
 | Shell inside | `docker exec -it tuafe sh` |
-| Strapi CLI | `docker exec -it tuafe npx strapi <command>` |
-| Rebuild after changing dependencies | `docker rm -f tuafe && docker build -t tuafe-strapi . && docker run …` |
+| Strapi CLI | `docker exec -it -e PORT=1399 tuafe npx strapi <command>` |
+| Rebuild after changing code | `docker rm -f tuafe && docker build -t tuafe-strapi . && docker run …` |
 
-Uploaded media lives in the `tuafe_uploads` volume and survives `docker rm`. It is deleted only by
-`docker volume rm tuafe_uploads`.
+Uploaded media lives in the `tuafe_uploads` volume and survives `docker rm`. It
+is deleted only by `docker volume rm tuafe_uploads`.
 
 ## Production image
 
 ```bash
-docker build --build-arg NODE_ENV=production -t tuafe-strapi:prod .
+docker build --build-arg NODE_ENV=production --build-arg VITE_API_URL=https://api.example.com -t tuafe-strapi:prod .
 ```
 
-```bash
-docker run -d --name tuafe -p 127.0.0.1:1337:1337 --env-file backend/.env -v tuafe_uploads:/opt/app/public/uploads tuafe-strapi:prod sh -c "npm run build && npm run start"
-```
-
-Use different secrets from development, and never expose the admin panel without TLS in front.
+The entrypoint builds the admin panel and runs `npm run start` when `NODE_ENV`
+is `production`. Use different secrets from development, and never expose the
+admin panel without TLS in front.
 
 ## Running without Docker
 
@@ -137,25 +191,33 @@ Use different secrets from development, and never expose the admin panel without
 cd backend && npm install && npm run develop
 ```
 
+```bash
+cd frontend && npm install && npm run dev
+```
+
 Same `backend/.env`, except `DATABASE_HOST` stays `127.0.0.1`.
 
 ## Troubleshooting
 
-**`write /var/lib/.../meta.db: read-only file system`** — Docker's virtual disk is full, usually
-because the host disk is. Reclaim space, then restart Docker Desktop:
+**`write /var/lib/.../meta.db: read-only file system`** — Docker's virtual disk
+is full, usually because the host disk is. Reclaim space, then restart Docker
+Desktop:
 
 ```bash
 docker builder prune -af && docker system prune -af
 ```
 
-**`ECONNREFUSED 127.0.0.1:3306`** — the container is looking for MySQL inside itself. Use
-`host.docker.internal` (database on the host) or the MySQL container's name on a shared network.
+**`ECONNREFUSED 127.0.0.1:3306`** — the container is looking for MySQL inside
+itself. Use `host.docker.internal` (database on the host) or the MySQL
+container's name on a shared network.
 
-**`Error: self-signed certificate in certificate chain`** — `DATABASE_SSL=true` against a local
-MySQL container. Run with `-e DATABASE_SSL=false`.
+**`Error: self-signed certificate in certificate chain`** — `DATABASE_SSL=true`
+against a local MySQL container. Run with `-e DATABASE_SSL=false`.
 
-**`Missing apps keys`** — `APP_KEYS` is empty or malformed; it needs at least two comma-separated
-values.
+**`Missing apps keys`** — `APP_KEYS` is empty or malformed; it needs at least
+two comma-separated values.
 
-**Admin panel changes not showing** — the admin is rebuilt on start; watch `docker logs -f tuafe`
-until the build finishes, then hard-reload the browser.
+**The front-end cannot reach the API** — the browser calls the API directly, so
+the API origin must be in `CORS_ORIGINS` (see
+[backend/config/middlewares.ts](backend/config/middlewares.ts)) and reachable
+from the browser, not only from inside the container.
