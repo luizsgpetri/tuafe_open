@@ -1,4 +1,11 @@
 # tuafe
+"Tua fé" is being created as an effort to help churches manage their community and offer services to them.
+The original idea came a few months ago when my local priest asked me for help configuring a spreadsheet to 
+store data related to the church members like contact info, name, date of birth and such.
+
+The MVP for this project will be a website where you can create churches and people can join those churches.
+The final goal is to let chuch staff to have a fully functional website based on Strapi CMS, with community,
+donation and live mass.
 
 Church community system: churches are managed in the Strapi admin panel, and
 people join a church by scanning its invitation QR code.
