@@ -179,8 +179,8 @@ front-end changes always need a rebuild (or `cd frontend && npm run dev`).
 | Task | Command |
 |---|---|
 | Follow the logs | `docker logs -f tuafe` |
-| Stop | `docker stop tuafe` |
-| Start again | `docker start tuafe` |
+| Stop | `docker stop tuafe tuafe-mysql` |
+| Start again | `docker start tuafe-mysql && sleep 5 && docker start tuafe` |
 | Stop and remove | `docker rm -f tuafe` |
 | Shell inside | `docker exec -it tuafe sh` |
 | Strapi CLI | `docker exec -it -e PORT=1399 tuafe npx strapi <command>` |
